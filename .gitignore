@@ -1,5 +1,13 @@
+var/
+vendor/
+.phpunit.cache/
+composer.lock
+.php-cs-fixer.cache
+.phpunit.result.cache
+phpunit.xml
 .idea
-*.log
-/coverage
 /.phpunit.cache
 /.phpunit.result.cache
+/coverage
+*.cache
+*.log
