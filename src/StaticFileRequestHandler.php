@@ -51,8 +51,8 @@ class StaticFileRequestHandler implements RequestHandlerInterface
 
         // 只处理存在的静态文件，不处理PHP文件
         if ($filesystem->exists($checkFile) && is_file($checkFile) && !str_contains($checkFile, '.php')) {
-            $fileSize = $filesystem->exists($checkFile) ? filesize($checkFile) : 0;
-            $lastModified = $filesystem->exists($checkFile) ? filemtime($checkFile) : 0;
+            $fileSize = filesize($checkFile);
+            $lastModified = filemtime($checkFile);
             $lastModifiedDate = gmdate('D, d M Y H:i:s', $lastModified) . ' GMT';
             $etag = sprintf('"%s"', md5((string)$lastModified . (string)$fileSize));
 
@@ -62,8 +62,8 @@ class StaticFileRequestHandler implements RequestHandlerInterface
 
             // 处理缓存有效情况
             if (
-                ($ifModifiedSince && $ifModifiedSince === $lastModifiedDate) ||
-                ($ifNoneMatch && $ifNoneMatch === $etag)
+                (!empty($ifModifiedSince) && $ifModifiedSince === $lastModifiedDate) ||
+                (!empty($ifNoneMatch) && $ifNoneMatch === $etag)
             ) {
                 return new Response(
                     304,
