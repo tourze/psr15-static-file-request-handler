@@ -32,123 +32,209 @@ class StaticFileRequestHandler implements RequestHandlerInterface
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
         $filesystem = $this->filesystem ?? new Filesystem();
-        $path = $request->getUri()->getPath();
+        $filePath = $this->resolveFilePath($request, $filesystem);
 
-        // 静态文件的支持
+        if (!$this->isValidStaticFile($filePath, $filesystem)) {
+            return new Response(404, body: 'File not found');
+        }
+
+        $fileInfo = $this->getFileInfo($filePath);
+
+        if ($this->isCacheValid($request, $fileInfo)) {
+            return $this->createNotModifiedResponse($fileInfo);
+        }
+
+        $headers = $this->buildResponseHeaders($filePath, $fileInfo);
+
+        return $this->handleFileResponse($request, $filePath, $headers, $fileInfo);
+    }
+
+    private function resolveFilePath(ServerRequestInterface $request, Filesystem $filesystem): string
+    {
+        $path = $request->getUri()->getPath();
         $checkFile = "{$this->publicPath}/{$path}";
         $checkFile = str_replace('..', '/', $checkFile);
 
-        // 兼容访问目录
-        if ($filesystem->exists($checkFile) && is_dir($checkFile)) {
-            $checkFile = rtrim($checkFile, '/');
-            if ($filesystem->exists("{$checkFile}/index.htm")) {
-                $checkFile = "{$checkFile}/index.htm";
-            }
-            if ($filesystem->exists("{$checkFile}/index.html")) {
-                $checkFile = "{$checkFile}/index.html";
-            }
+        return $this->resolveDirectoryIndex($checkFile, $filesystem);
+    }
+
+    private function resolveDirectoryIndex(string $checkFile, Filesystem $filesystem): string
+    {
+        if (!$filesystem->exists($checkFile) || !is_dir($checkFile)) {
+            return $checkFile;
         }
 
-        // 只处理存在的静态文件，不处理PHP文件
-        if ($filesystem->exists($checkFile) && is_file($checkFile) && !str_contains($checkFile, '.php')) {
-            $fileSize = filesize($checkFile);
-            $lastModified = filemtime($checkFile);
-            $lastModifiedDate = gmdate('D, d M Y H:i:s', $lastModified) . ' GMT';
-            $etag = sprintf('"%s"', md5((string)$lastModified . (string)$fileSize));
+        $checkFile = rtrim($checkFile, '/');
 
-            // 检查缓存头信息
-            $ifModifiedSince = $request->getHeaderLine('If-Modified-Since');
-            $ifNoneMatch = $request->getHeaderLine('If-None-Match');
+        if ($filesystem->exists("{$checkFile}/index.htm")) {
+            return "{$checkFile}/index.htm";
+        }
 
-            // 处理缓存有效情况
-            if (
-                (!empty($ifModifiedSince) && $ifModifiedSince === $lastModifiedDate) ||
-                (!empty($ifNoneMatch) && $ifNoneMatch === $etag)
-            ) {
-                return new Response(
-                    304,
-                    [
-                        'Cache-Control' => 'public, max-age=86400',
-                        'Last-Modified' => $lastModifiedDate,
-                        'ETag' => $etag,
-                    ]
-                );
-            }
+        if ($filesystem->exists("{$checkFile}/index.html")) {
+            return "{$checkFile}/index.html";
+        }
 
-            // 获取MIME类型
-            $mimeType = $this->mimeTypeDetector->detectMimeTypeFromPath($checkFile) ?? 'application/octet-stream';
+        return $checkFile;
+    }
 
-            // 准备响应头
-            $headers = [
-                'Content-Type' => $mimeType,
-                'Content-Length' => (string)$fileSize,
-                'Last-Modified' => $lastModifiedDate,
-                'ETag' => $etag,
+    private function isValidStaticFile(string $filePath, Filesystem $filesystem): bool
+    {
+        return $filesystem->exists($filePath)
+            && is_file($filePath)
+            && !str_contains($filePath, '.php');
+    }
+
+    /**
+     * @return array{size: int|false, lastModified: int|false, lastModifiedDate: string, etag: string}
+     */
+    private function getFileInfo(string $filePath): array
+    {
+        $fileSize = filesize($filePath);
+        $lastModified = filemtime($filePath);
+        $lastModifiedDate = gmdate('D, d M Y H:i:s', false !== $lastModified ? $lastModified : 0) . ' GMT';
+        $etag = sprintf('"%s"', md5((string) $lastModified . (string) $fileSize));
+
+        return [
+            'size' => $fileSize,
+            'lastModified' => $lastModified,
+            'lastModifiedDate' => $lastModifiedDate,
+            'etag' => $etag,
+        ];
+    }
+
+    /**
+     * @param array{size: int|false, lastModified: int|false, lastModifiedDate: string, etag: string} $fileInfo
+     */
+    private function isCacheValid(ServerRequestInterface $request, array $fileInfo): bool
+    {
+        $ifModifiedSince = $request->getHeaderLine('If-Modified-Since');
+        $ifNoneMatch = $request->getHeaderLine('If-None-Match');
+
+        return ('' !== $ifModifiedSince && $ifModifiedSince === $fileInfo['lastModifiedDate'])
+            || ('' !== $ifNoneMatch && $ifNoneMatch === $fileInfo['etag']);
+    }
+
+    /**
+     * @param array{size: int|false, lastModified: int|false, lastModifiedDate: string, etag: string} $fileInfo
+     */
+    private function createNotModifiedResponse(array $fileInfo): ResponseInterface
+    {
+        return new Response(
+            304,
+            [
                 'Cache-Control' => 'public, max-age=86400',
-            ];
+                'Last-Modified' => $fileInfo['lastModifiedDate'],
+                'ETag' => $fileInfo['etag'],
+            ]
+        );
+    }
 
-            // 处理范围请求
-            $rangeHeader = $request->getHeaderLine('Range');
-            if (!empty($rangeHeader) && str_starts_with($rangeHeader, 'bytes=')) {
-                // 提取范围
-                $range = substr($rangeHeader, 6);
-                $rangeParts = explode('-', $range);
-                $rangeStart = $rangeParts[0] === '' ? 0 : (int)$rangeParts[0];
-                $rangeEnd = $rangeParts[1] === '' ? $fileSize - 1 : (int)$rangeParts[1];
+    /**
+     * @param array{size: int|false, lastModified: int|false, lastModifiedDate: string, etag: string} $fileInfo
+     * @return array<string, string>
+     */
+    private function buildResponseHeaders(string $filePath, array $fileInfo): array
+    {
+        $mimeType = $this->mimeTypeDetector->detectMimeTypeFromPath($filePath) ?? 'application/octet-stream';
 
-                // 验证范围有效性
-                if ($rangeStart >= $fileSize || $rangeEnd >= $fileSize) {
-                    return new Response(
-                        416,
-                        [
-                            'Content-Range' => "bytes */{$fileSize}",
-                        ]
-                    );
-                }
+        return [
+            'Content-Type' => $mimeType,
+            'Content-Length' => (string) $fileInfo['size'],
+            'Last-Modified' => $fileInfo['lastModifiedDate'],
+            'ETag' => $fileInfo['etag'],
+            'Cache-Control' => 'public, max-age=86400',
+        ];
+    }
 
-                $length = $rangeEnd - $rangeStart + 1;
-                $headers['Content-Length'] = (string)$length;
-                $headers['Content-Range'] = "bytes {$rangeStart}-{$rangeEnd}/{$fileSize}";
+    /**
+     * @param array<string, string> $headers
+     * @param array{size: int|false, lastModified: int|false, lastModifiedDate: string, etag: string} $fileInfo
+     */
+    private function handleFileResponse(
+        ServerRequestInterface $request,
+        string $filePath,
+        array $headers,
+        array $fileInfo,
+    ): ResponseInterface {
+        $rangeHeader = $request->getHeaderLine('Range');
 
-                try {
-                    // 读取文件指定范围内容
-                    $fileHandle = fopen($checkFile, 'rb');
-                    if ($fileHandle === false) {
-                        return new Response(500, body: 'Error opening file');
-                    }
-
-                    fseek($fileHandle, $rangeStart);
-                    $content = fread($fileHandle, $length);
-                    fclose($fileHandle);
-
-                    return new Response(
-                        206,
-                        $headers,
-                        $content
-                    );
-                } catch (IOException $e) {
-                    return new Response(500, body: 'Error reading file: ' . $e->getMessage());
-                }
-            }
-
-            try {
-                // 读取整个文件内容
-                $content = file_get_contents($checkFile);
-                if ($content === false) {
-                    return new Response(500, body: 'Error reading file');
-                }
-
-                return new Response(
-                    200,
-                    $headers,
-                    $content
-                );
-            } catch (IOException $e) {
-                return new Response(500, body: 'Error reading file: ' . $e->getMessage());
-            }
+        if ('' !== $rangeHeader && str_starts_with($rangeHeader, 'bytes=')) {
+            return $this->handleRangeRequest($filePath, $headers, $fileInfo, $rangeHeader);
         }
 
-        // 如果不是静态文件，则返回404
-        return new Response(404, body: 'File not found');
+        return $this->handleFullFileRequest($filePath, $headers);
+    }
+
+    /**
+     * @param array<string, string> $headers
+     * @param array{size: int|false, lastModified: int|false, lastModifiedDate: string, etag: string} $fileInfo
+     */
+    private function handleRangeRequest(
+        string $filePath,
+        array $headers,
+        array $fileInfo,
+        string $rangeHeader,
+    ): ResponseInterface {
+        $range = substr($rangeHeader, 6);
+        $rangeParts = explode('-', $range);
+        $rangeStart = '' === $rangeParts[0] ? 0 : (int) $rangeParts[0];
+
+        $fileSize = false !== $fileInfo['size'] ? $fileInfo['size'] : 0;
+        $rangeEnd = '' === $rangeParts[1] ? $fileSize - 1 : (int) $rangeParts[1];
+        if ($rangeStart >= $fileSize || $rangeEnd >= $fileSize) {
+            return new Response(
+                416,
+                [
+                    'Content-Range' => "bytes */{$fileSize}",
+                ]
+            );
+        }
+
+        $length = $rangeEnd - $rangeStart + 1;
+        $headers['Content-Length'] = (string) $length;
+        $headers['Content-Range'] = "bytes {$rangeStart}-{$rangeEnd}/{$fileSize}";
+
+        try {
+            $content = $this->readFileRange($filePath, $rangeStart, $length);
+
+            return new Response(206, $headers, $content);
+        } catch (IOException $e) {
+            return new Response(500, body: 'Error reading file: ' . $e->getMessage());
+        }
+    }
+
+    private function readFileRange(string $filePath, int $start, int $length): string
+    {
+        $fileHandle = fopen($filePath, 'rb');
+        if (false === $fileHandle) {
+            throw new IOException('Error opening file');
+        }
+
+        fseek($fileHandle, $start);
+        $content = fread($fileHandle, max(1, $length));
+        fclose($fileHandle);
+
+        if (false === $content) {
+            throw new IOException('Error reading file range');
+        }
+
+        return $content;
+    }
+
+    /**
+     * @param array<string, string> $headers
+     */
+    private function handleFullFileRequest(string $filePath, array $headers): ResponseInterface
+    {
+        try {
+            $content = file_get_contents($filePath);
+            if (false === $content) {
+                return new Response(500, body: 'Error reading file');
+            }
+
+            return new Response(200, $headers, $content);
+        } catch (IOException $e) {
+            return new Response(500, body: 'Error reading file: ' . $e->getMessage());
+        }
     }
 }

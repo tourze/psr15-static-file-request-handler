@@ -2,12 +2,26 @@
 
 [English](README.md) | [中文](README.zh-CN.md)
 
-[![Latest Version](https://img.shields.io/packagist/v/tourze/psr15-static-file-request-handler.svg?style=flat-square)](https://packagist.org/packages/tourze/psr15-static-file-request-handler)
-[![Build Status](https://img.shields.io/travis/tourze/psr15-static-file-request-handler/master.svg?style=flat-square)](https://travis-ci.org/tourze/psr15-static-file-request-handler)
-[![Quality Score](https://img.shields.io/scrutinizer/g/tourze/psr15-static-file-request-handler.svg?style=flat-square)](https://scrutinizer-ci.com/g/tourze/psr15-static-file-request-handler)
-[![Total Downloads](https://img.shields.io/packagist/dt/tourze/psr15-static-file-request-handler.svg?style=flat-square)](https://packagist.org/packages/tourze/psr15-static-file-request-handler)
+[![Latest Version][badge-version]][link-packagist]
+[![PHP Version][badge-php]][link-packagist]
+[![License][badge-license]][link-license]
+[![Build Status][badge-build]][link-travis]
+[![Quality Score][badge-quality]][link-scrutinizer]
+[![Total Downloads][badge-downloads]][link-packagist]
 
-A PSR-15 compatible request handler for serving static files efficiently in PHP applications. Supports cache headers, range requests, directory index, and MIME type detection.
+[badge-version]: https://img.shields.io/packagist/v/tourze/psr15-static-file-request-handler.svg?style=flat-square
+[badge-php]: https://img.shields.io/packagist/php-v/tourze/psr15-static-file-request-handler.svg?style=flat-square
+[badge-license]: https://img.shields.io/github/license/tourze/php-monorepo.svg?style=flat-square
+[badge-build]: https://img.shields.io/travis/tourze/psr15-static-file-request-handler/master.svg?style=flat-square
+[badge-quality]: https://img.shields.io/scrutinizer/g/tourze/psr15-static-file-request-handler.svg?style=flat-square
+[badge-downloads]: https://img.shields.io/packagist/dt/tourze/psr15-static-file-request-handler.svg?style=flat-square
+[link-packagist]: https://packagist.org/packages/tourze/psr15-static-file-request-handler
+[link-license]: LICENSE
+[link-travis]: https://travis-ci.org/tourze/psr15-static-file-request-handler
+[link-scrutinizer]: https://scrutinizer-ci.com/g/tourze/psr15-static-file-request-handler
+
+A PSR-15 compatible request handler for serving static files efficiently in PHP applications.
+Supports cache headers, range requests, directory index, and MIME type detection.
 
 ## Features
 
@@ -21,16 +35,26 @@ A PSR-15 compatible request handler for serving static files efficiently in PHP 
 
 ## Installation
 
-**Requirements:**
-
-- PHP >= 8.1
-- Composer
-
 **Install via Composer:**
 
 ```bash
 composer require tourze/psr15-static-file-request-handler
 ```
+
+## Dependencies
+
+**Requirements:**
+
+- PHP >= 8.1
+- Composer
+
+**Dependencies:**
+
+- `psr/http-message` - PSR-7 HTTP message interfaces
+- `psr/http-server-handler` - PSR-15 HTTP handlers
+- `league/mime-type-detection` - MIME type detection
+- `nyholm/psr7` - PSR-7 implementation
+- `symfony/filesystem` - File system operations
 
 ## Quick Start
 
@@ -57,21 +81,67 @@ $response = $handler->handle($request);
 
 ## Documentation
 
-- **Public API:** `StaticFileRequestHandler::__construct(string $publicPath, ?Filesystem $filesystem = null)`
-- **handle(ServerRequestInterface $request): ResponseInterface`**
-- Automatically detects MIME type and handles cache headers
-- Returns 404 for non-existent files, 416 for invalid ranges
+### Public API
+
+- **Constructor:** `StaticFileRequestHandler::__construct(string $publicPath, ?Filesystem $filesystem = null)`
+- **Handler method:** `handle(ServerRequestInterface $request): ResponseInterface`
+
+### Response Codes
+
+- **200 OK:** File found and served successfully
+- **206 Partial Content:** Range request served successfully
+- **304 Not Modified:** File not modified (cache hit)
+- **404 Not Found:** File does not exist
+- **416 Range Not Satisfiable:** Invalid range request
+- **500 Internal Server Error:** File read error
 
 ### Configuration
 
 - `publicPath`: The root directory for static files
 - Optionally pass a Symfony Filesystem instance
 
-### Advanced Features
+## Advanced Usage
 
-- Range request support (for large files, video, etc.)
-- Directory index resolution (index.html/index.htm)
-- ETag and Last-Modified cache validation
+### Custom Filesystem Integration
+
+```php
+use Symfony\Component\Filesystem\Filesystem;
+
+$filesystem = new Filesystem();
+$handler = new StaticFileRequestHandler($publicPath, $filesystem);
+```
+
+### Middleware Integration
+
+```php
+use Slim\App;
+
+$app = new App();
+$app->add(function ($request, $handler) {
+    $staticHandler = new StaticFileRequestHandler(__DIR__ . '/public');
+    return $staticHandler->handle($request);
+});
+```
+
+### Cache Headers
+
+The handler automatically sets cache headers:
+- `ETag` for cache validation
+- `Last-Modified` for conditional requests
+- `Cache-Control: public, max-age=86400` for browser caching
+
+### Range Request Support
+
+Supports HTTP range requests for:
+- Large file downloads
+- Video streaming
+- Progressive loading
+
+### Directory Index
+
+Automatically serves index files:
+- `index.html` (preferred)
+- `index.htm` (fallback)
 
 ## Contributing
 

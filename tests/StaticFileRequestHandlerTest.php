@@ -6,19 +6,29 @@ namespace Tourze\PSR15StaticFileRequestHandler\Tests;
 
 use Nyholm\Psr7\ServerRequest;
 use Nyholm\Psr7\Uri;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Filesystem\Filesystem;
 use Tourze\PSR15StaticFileRequestHandler\StaticFileRequestHandler;
 
-class StaticFileRequestHandlerTest extends TestCase
+/**
+ * @internal
+ */
+#[CoversClass(StaticFileRequestHandler::class)]
+final class StaticFileRequestHandlerTest extends TestCase
 {
     private string $tempDir;
+
     private string $testFile;
+
     private string $testHtmlFile;
+
     private Filesystem $filesystem;
 
     protected function setUp(): void
     {
+        parent::setUp();
+
         $this->filesystem = new Filesystem();
 
         // 创建临时目录
@@ -55,7 +65,7 @@ class StaticFileRequestHandlerTest extends TestCase
         $response = $handler->handle($request);
 
         $this->assertEquals(200, $response->getStatusCode());
-        $this->assertEquals('Test content', (string)$response->getBody());
+        $this->assertEquals('Test content', (string) $response->getBody());
         $this->assertEquals('text/plain', $response->getHeaderLine('Content-Type'));
         $this->assertNotEmpty($response->getHeaderLine('ETag'));
         $this->assertNotEmpty($response->getHeaderLine('Last-Modified'));
@@ -70,7 +80,7 @@ class StaticFileRequestHandlerTest extends TestCase
         $response = $handler->handle($request);
 
         $this->assertEquals(200, $response->getStatusCode());
-        $this->assertEquals('<html><body>Test HTML</body></html>', (string)$response->getBody());
+        $this->assertEquals('<html><body>Test HTML</body></html>', (string) $response->getBody());
         $this->assertEquals('text/html', $response->getHeaderLine('Content-Type'));
     }
 
@@ -82,7 +92,7 @@ class StaticFileRequestHandlerTest extends TestCase
         $response = $handler->handle($request);
 
         $this->assertEquals(200, $response->getStatusCode());
-        $this->assertEquals('<html><body>Index</body></html>', (string)$response->getBody());
+        $this->assertEquals('<html><body>Index</body></html>', (string) $response->getBody());
     }
 
     public function testHandleNonExistentFile(): void
@@ -122,7 +132,7 @@ class StaticFileRequestHandlerTest extends TestCase
         $response = $handler->handle($request);
 
         $this->assertEquals(206, $response->getStatusCode());
-        $this->assertEquals('Test ', (string)$response->getBody());
+        $this->assertEquals('Test ', (string) $response->getBody());
         $this->assertEquals('bytes 0-4/12', $response->getHeaderLine('Content-Range'));
         $this->assertEquals('5', $response->getHeaderLine('Content-Length'));
     }
